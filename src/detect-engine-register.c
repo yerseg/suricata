@@ -218,6 +218,7 @@
 #include "detect-mqtt-subscribe-topic.h"
 #include "detect-mqtt-unsubscribe-topic.h"
 
+#include "detect-s7comm-s7commbuf.h"
 #include "detect-template-buffer.h"
 #include "detect-bypass.h"
 #include "detect-ftpdata.h"
@@ -625,6 +626,7 @@ void SigTableSetup(void)
     DetectMQTTSubscribeTopicRegister();
     DetectMQTTUnsubscribeTopicRegister();
 
+    DetectS7commS7commbufRegister();
     DetectTemplateBufferRegister();
     DetectBypassRegister();
     DetectConfigRegister();

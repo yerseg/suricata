@@ -51,6 +51,7 @@ app-layer-ikev2.c app-layer-ikev2.h \
 app-layer-krb5.c app-layer-krb5.h \
 app-layer-rfb.c app-layer-rfb.h \
 app-layer-mqtt.c app-layer-mqtt.h \
+app-layer-s7comm.c app-layer-s7comm.h \
 app-layer-template.c app-layer-template.h \
 app-layer-template-rust.c app-layer-template-rust.h \
 app-layer-rdp.c app-layer-rdp.h \
@@ -307,6 +308,7 @@ detect-mqtt-publish-message.c detect-mqtt-publish-message.h \
 detect-mqtt-publish-topic.c detect-mqtt-publish-topic.h \
 detect-mqtt-subscribe-topic.c detect-mqtt-subscribe-topic.h \
 detect-mqtt-unsubscribe-topic.c detect-mqtt-unsubscribe-topic.h \
+detect-s7comm-s7commbuf.c detect-s7comm-s7commbuf.h \
 detect-template-buffer.c detect-template-buffer.h \
 detect-threshold.c detect-threshold.h \
 detect-tls.c detect-tls.h \
@@ -391,6 +393,7 @@ output-json-dhcp.c output-json-dhcp.h \
 output-json-snmp.c output-json-snmp.h \
 output-json-rfb.c output-json-rfb.h \
 output-json-mqtt.c output-json-mqtt.h \
+output-json-s7comm.c output-json-s7comm.h \
 output-json-template.c output-json-template.h \
 output-json-template-rust.c output-json-template-rust.h \
 output-json-rdp.c output-json-rdp.h \
