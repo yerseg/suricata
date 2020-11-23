@@ -24,7 +24,7 @@
 /**
  * \file
  *
- * \author FirstName LastName <yourname@domain>
+ * \author Sergey Kazmin <yourname@domain>
  *
  * Set up of the "s7comm_s7commbuf" keyword to allow content
  * inspections on the decoded s7comm application layer buffers.
@@ -40,22 +40,197 @@
 #include "app-layer-s7comm.h"
 #include "detect-s7comm-s7commbuf.h"
 
-static int DetectS7commS7commbufSetup(DetectEngineCtx *, Signature *, const char *);
-static InspectionBuffer *GetData(DetectEngineThreadCtx *det_ctx,
-        const DetectEngineTransforms *transforms,
-        Flow *_f, const uint8_t flow_flags,
-        void *txv, const int list_id);
+// TODO: regex!!!
+
+/**
+ * \brief Regex for parsing the S7comm type string
+ */
+#define PARSE_REGEX_TYPE "^\\s*\"?\\s*unit\\s+([<>]?\\d+)(<>\\d+)?(,\\s*(.*))?\\s*\"?\\s*$"
+static DetectParseRegex type_parse_regex;
+
+/**
+ * \brief Regex for parsing the S7comm function string
+ */
+#define PARSE_REGEX_FUNCTION "^\\s*\"?\\s*function\\s*\\d\\s*\"?\\s*$"
+static DetectParseRegex function_parse_regex;
+        
 #ifdef UNITTESTS
 static void DetectS7commS7commbufRegisterTests(void);
 #endif
-static int g_s7comm_s7commbuf_id = 0;
+
+static int g_s7comm_id = 0;
+
+static DetectS7comm *DetectS7commTypeParse(DetectEngineCtx *de_ctx, const char *s7commstr)
+{
+    SCEnter();
+    DetectS7comm *s7comm = NULL;
+
+    char    arg[MAX_SUBSTRINGS];
+    int     ov[MAX_SUBSTRINGS], ret, res;
+
+    ret = DetectParsePcreExec(&type_parse_regex, s7commstr, 0, 0, ov, MAX_SUBSTRINGS);
+    if (ret < 1)
+        goto error;
+
+    res = pcre_copy_substring(str, ov, MAX_SUBSTRINGS, 1, arg, MAX_SUBSTRINGS);
+    if (res < 0) {
+        SCLogError(SC_ERR_PCRE_GET_SUBSTRING, "pcre_get_substring failed");
+        goto error;
+    }
+
+    if (ret > 3) {
+        /* We have more S7comm option */
+        const char *str_ptr;
+
+        res = pcre_get_substring((char *)str, ov, MAX_SUBSTRINGS, 4, &str_ptr);
+        if (res < 0) {
+            SCLogError(SC_ERR_PCRE_GET_SUBSTRING, "pcre_get_substring failed");
+            goto error;
+        }
+
+        if ((modbus = DetectModbusFunctionParse(de_ctx, str_ptr)) == NULL) {
+            if ((modbus = DetectModbusAccessParse(de_ctx, str_ptr)) == NULL) {
+                SCLogError(SC_ERR_PCRE_MATCH, "invalid modbus option");
+                goto error;
+            }
+        }
+    } else {
+        /* We have only unit id Modbus option */
+        modbus = (DetectModbus *) SCCalloc(1, sizeof(DetectModbus));
+        if (unlikely(modbus == NULL))
+            goto error;
+    }
+
+    /* We have a correct unit id option */
+    modbus->unit_id = (DetectModbusValue *) SCCalloc(1, sizeof(DetectModbusValue));
+    if (unlikely(modbus->unit_id == NULL))
+        goto error;
+
+    uint8_t idx;
+    if (arg[0] == '>') { 
+        idx = 1;
+        modbus->unit_id->mode  = DETECT_MODBUS_GT;
+    } else if (arg[0] == '<') {
+        idx = 1;
+        modbus->unit_id->mode  = DETECT_MODBUS_LT;
+    } else {
+        idx = 0;
+    }
+    if (StringParseUint16(&modbus->unit_id->min, 10, 0, (const char *) (arg + idx)) < 0) {
+        SCLogError(SC_ERR_INVALID_VALUE, "Invalid value for "
+                   "modbus min unit id: %s", (const char*)(arg + idx));
+        goto error;
+    }
+    SCLogDebug("and min/equal unit id %d", modbus->unit_id->min);
+
+    if (ret > 2) {
+        res = pcre_copy_substring(str, ov, MAX_SUBSTRINGS, 2, arg, MAX_SUBSTRINGS);
+        if (res < 0) {
+            SCLogError(SC_ERR_PCRE_GET_SUBSTRING, "pcre_get_substring failed");
+            goto error;
+        }
+
+        if (*arg != '\0') {
+            if (StringParseUint16(&modbus->unit_id->max, 10, 0, (const char *) (arg + 2)) < 0) {
+                SCLogError(SC_ERR_INVALID_VALUE, "Invalid value for "
+                           "modbus max unit id: %s", (const char*)(arg + 2));
+                goto error;
+            }
+            modbus->unit_id->mode  = DETECT_MODBUS_RA;
+            SCLogDebug("and max unit id %d", modbus->unit_id->max);
+        }
+    }
+
+    SCReturnPtr(modbus, "DetectModbusUnitId");
+
+error:
+    if (modbus != NULL)
+        DetectModbusFree(de_ctx, modbus);
+
+    SCReturnPtr(NULL, "DetectModbus");
+}
+
+static DetectS7comm *DetectS7commFunctionParse(DetectEngineCtx *de_ctx, const char *s7commstr)
+{
+
+}
+
+static int DetectS7commMatch(DetectEngineThreadCtx *det_ctx, Packet *p,
+        const Signature *s, const SigMatchCtx *ctx)
+{
+
+}
+
+static int DetectS7commSetup(DetectEngineCtx *de_ctx, Signature *s, const char *s7commstr)
+{
+    SCEnter();
+
+    /* store list id. Content, pcre, etc will be added to the list at this
+     * id. */
+    s->init_data->list = g_s7comm_id;
+
+    /* set the app proto for this signature. This means it will only be
+     * evaluated against flows that are ALPROTO_S7COMM */
+
+    DetectS7comm    *s7comm = NULL;
+    SigMatch        *sm = NULL;
+
+    if (DetectSignatureSetAppProto(s, ALPROTO_S7COMM) != 0)
+        SCReturnInt(-1);
+
+    if ((s7comm = DetectS7commTypeParse(de_ctx, str)) == NULL) {
+        if ((s7comm = DetectS7commFunctionParse(de_ctx, str)) == NULL) {
+            SCLogError(SC_ERR_PCRE_MATCH, "invalid modbus option");
+            if (modbus != NULL)
+                DetectS7commFree(de_ctx, s7comm);
+
+            if (sm != NULL)
+                SCFree(sm);
+
+            SCReturnInt(-1);
+        }
+    }
+
+    /* Okay so far so good, lets get this into a SigMatch and put it in the Signature. */
+    sm = SigMatchAlloc();
+    if (sm == NULL)
+    {
+        if (modbus != NULL)
+            DetectS7commFree(de_ctx, s7comm);
+
+        if (sm != NULL)
+            SCFree(sm);
+
+        SCReturnInt(-1);
+    }
+
+    sm->type    = DETECT_AL_S7COMM_S7COMMBUF;
+    sm->ctx     = (void *) s7comm;
+
+    SigMatchAppendSMToList(s, sm, );
+
+    SCReturnInt(0);
+}
+
+static void DetectS7commFree(DetectEngineCtx *de_ctx, void *ptr)
+{
+    SCEnter();
+    DetectS7comm *s7comm = (DetectS7comm *) ptr;
+
+    if (s7comm) {
+        SCFree(s7comm);
+    }
+}
 
 void DetectS7commS7commbufRegister(void)
 {
-    sigmatch_table[DETECT_AL_S7COMM_S7COMMBUF].name = "s7comm_s7commbuf";
-    sigmatch_table[DETECT_AL_S7COMM_S7COMMBUF].desc =
-        "S7comm content modififier to match on the s7comm buffers";
-    sigmatch_table[DETECT_AL_S7COMM_S7COMMBUF].Setup = DetectS7commS7commbufSetup;
+    SCEnter();    
+
+    sigmatch_table[DETECT_AL_S7COMM_S7COMMBUF].name = "s7comm";
+    sigmatch_table[DETECT_AL_S7COMM_S7COMMBUF].desc = "S7comm content modififier to match on the s7comm buffers";
+    sigmatch_table[DETECT_AL_S7COMM_S7COMMBUF].Match = DetectS7commMatch;
+    sigmatch_table[DETECT_AL_S7COMM_S7COMMBUF].Setup = DetectS7commSetup;
+    sigmatch_table[DETECT_AL_S7COMM_S7COMMBUF].Free = DetectS7commFree;
 #ifdef UNITTESTS
     sigmatch_table[DETECT_AL_S7COMM_S7COMMBUF].RegisterTests =
         DetectS7commS7commbufRegisterTests;
@@ -63,76 +238,12 @@ void DetectS7commS7commbufRegister(void)
 
     sigmatch_table[DETECT_AL_S7COMM_S7COMMBUF].flags |= SIGMATCH_NOOPT;
 
-    /* register inspect engines - these are called per signature */
-    DetectAppLayerInspectEngineRegister2("s7comm_s7commbuf",
-            ALPROTO_S7COMM, SIG_FLAG_TOSERVER, 0,
-            DetectEngineInspectBufferGeneric, GetData);
-    DetectAppLayerInspectEngineRegister2("s7comm_s7commbuf",
-            ALPROTO_S7COMM, SIG_FLAG_TOCLIENT, 0,
-            DetectEngineInspectBufferGeneric, GetData);
+    DetectSetupParseRegexes(PARSE_REGEX_TYPE, &type_parse_regex);
+    DetectSetupParseRegexes(PARSE_REGEX_FUNCTION, &function_parse_regex);
 
-    /* register mpm engines - these are called in the prefilter stage */
-    DetectAppLayerMpmRegister2("s7comm_s7commbuf", SIG_FLAG_TOSERVER, 0,
-            PrefilterGenericMpmRegister, GetData,
-            ALPROTO_S7COMM, 0);
-    DetectAppLayerMpmRegister2("s7comm_s7commbuf", SIG_FLAG_TOCLIENT, 0,
-            PrefilterGenericMpmRegister, GetData,
-            ALPROTO_S7COMM, 0);
-
-
-    g_s7comm_s7commbuf_id = DetectBufferTypeGetByName("s7comm_s7commbuf");
+    g_s7comm_id = DetectBufferTypeGetByName("s7comm");
 
     SCLogNotice("S7comm application layer detect registered.");
-}
-
-static int DetectS7commS7commbufSetup(DetectEngineCtx *de_ctx, Signature *s,
-    const char *str)
-{
-    /* store list id. Content, pcre, etc will be added to the list at this
-     * id. */
-    s->init_data->list = g_s7comm_s7commbuf_id;
-
-    /* set the app proto for this signature. This means it will only be
-     * evaluated against flows that are ALPROTO_S7COMM */
-    if (DetectSignatureSetAppProto(s, ALPROTO_S7COMM) != 0)
-        return -1;
-
-    return 0;
-}
-
-/** \internal
- *  \brief get the data to inspect from the transaction.
- *  This function gets the data, sets up the InspectionBuffer object
- *  and applies transformations (if any).
- *
- *  \retval buffer or NULL in case of error
- */
-static InspectionBuffer *GetData(DetectEngineThreadCtx *det_ctx,
-        const DetectEngineTransforms *transforms,
-        Flow *_f, const uint8_t flow_flags,
-        void *txv, const int list_id)
-{
-    InspectionBuffer *buffer = InspectionBufferGet(det_ctx, list_id);
-    if (buffer->inspect == NULL) {
-        const S7commTransaction  *tx = (S7commTransaction *)txv;
-        const uint8_t *data = NULL;
-        uint32_t data_len = 0;
-
-        if (flow_flags & STREAM_TOSERVER) {
-            data = tx->request_buffer;
-            data_len = tx->request_buffer_len;
-        } else if (flow_flags & STREAM_TOCLIENT) {
-            data = tx->response_buffer;
-            data_len = tx->response_buffer_len;
-        } else {
-            return NULL; /* no buffer */
-        }
-
-        InspectionBufferSetup(buffer, data, data_len);
-        InspectionBufferApplyTransforms(buffer, transforms);
-    }
-
-    return buffer;
 }
 
 #ifdef UNITTESTS
