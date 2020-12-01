@@ -40,18 +40,20 @@
 #include "app-layer-s7comm.h"
 #include "detect-s7comm-s7commbuf.h"
 
-// TODO: regex!!!
+#include "util-byte.h"
+
+// TODO: regex for type!!!
 
 /**
  * \brief Regex for parsing the S7comm type string
  */
-#define PARSE_REGEX_TYPE "^\\s*\"?\\s*unit\\s+([<>]?\\d+)(<>\\d+)?(,\\s*(.*))?\\s*\"?\\s*$"
+#define PARSE_REGEX_TYPE "^\\s*\"?\\s*type\\s*\\d\\s*\"?\\s*$"
 static DetectParseRegex type_parse_regex;
 
 /**
  * \brief Regex for parsing the S7comm function string
  */
-#define PARSE_REGEX_FUNCTION "^\\s*\"?\\s*function\\s*\\d\\s*\"?\\s*$"
+#define PARSE_REGEX_FUNCTION "^\\s*\"?\\s*function\\s*([0-9]+)\\s*\"?\\s*$"
 static DetectParseRegex function_parse_regex;
         
 #ifdef UNITTESTS
@@ -60,108 +62,77 @@ static void DetectS7commS7commbufRegisterTests(void);
 
 static int g_s7comm_id = 0;
 
+void DetectS7commFree(DetectEngineCtx *de_ctx, void *ptr)
+{
+    SCEnter();
+    DetectS7comm *s7comm = (DetectS7comm *) ptr;
+
+    if (s7comm) {
+        SCFree(s7comm);
+    }
+}
+
+
 static DetectS7comm *DetectS7commTypeParse(DetectEngineCtx *de_ctx, const char *s7commstr)
+{
+    return NULL;
+}
+
+static DetectS7comm *DetectS7commFunctionParse(DetectEngineCtx *de_ctx, const char *s7commstr)
 {
     SCEnter();
     DetectS7comm *s7comm = NULL;
 
-    char    arg[MAX_SUBSTRINGS];
-    int     ov[MAX_SUBSTRINGS], ret, res;
+    char arg[MAX_SUBSTRINGS];
+    char *ptr = arg;
+    int ov[MAX_SUBSTRINGS];
+    int res;
+    int ret;
 
-    ret = DetectParsePcreExec(&type_parse_regex, s7commstr, 0, 0, ov, MAX_SUBSTRINGS);
+    ret = DetectParsePcreExec(&function_parse_regex, s7commstr, 0, 0, ov, MAX_SUBSTRINGS);
     if (ret < 1)
         goto error;
 
-    res = pcre_copy_substring(str, ov, MAX_SUBSTRINGS, 1, arg, MAX_SUBSTRINGS);
+    res = pcre_copy_substring(s7commstr, ov, MAX_SUBSTRINGS, 1, ptr, MAX_SUBSTRINGS);
     if (res < 0) {
         SCLogError(SC_ERR_PCRE_GET_SUBSTRING, "pcre_get_substring failed");
         goto error;
     }
 
-    if (ret > 3) {
-        /* We have more S7comm option */
-        const char *str_ptr;
-
-        res = pcre_get_substring((char *)str, ov, MAX_SUBSTRINGS, 4, &str_ptr);
-        if (res < 0) {
-            SCLogError(SC_ERR_PCRE_GET_SUBSTRING, "pcre_get_substring failed");
-            goto error;
-        }
-
-        if ((modbus = DetectModbusFunctionParse(de_ctx, str_ptr)) == NULL) {
-            if ((modbus = DetectModbusAccessParse(de_ctx, str_ptr)) == NULL) {
-                SCLogError(SC_ERR_PCRE_MATCH, "invalid modbus option");
-                goto error;
-            }
-        }
-    } else {
-        /* We have only unit id Modbus option */
-        modbus = (DetectModbus *) SCCalloc(1, sizeof(DetectModbus));
-        if (unlikely(modbus == NULL))
-            goto error;
-    }
-
-    /* We have a correct unit id option */
-    modbus->unit_id = (DetectModbusValue *) SCCalloc(1, sizeof(DetectModbusValue));
-    if (unlikely(modbus->unit_id == NULL))
+    /* We have a correct S7comm function option */
+    s7comm = (DetectS7comm *) SCCalloc(1, sizeof(DetectS7comm));
+    if (unlikely(s7comm == NULL))
         goto error;
 
-    uint8_t idx;
-    if (arg[0] == '>') { 
-        idx = 1;
-        modbus->unit_id->mode  = DETECT_MODBUS_GT;
-    } else if (arg[0] == '<') {
-        idx = 1;
-        modbus->unit_id->mode  = DETECT_MODBUS_LT;
-    } else {
-        idx = 0;
-    }
-    if (StringParseUint16(&modbus->unit_id->min, 10, 0, (const char *) (arg + idx)) < 0) {
-        SCLogError(SC_ERR_INVALID_VALUE, "Invalid value for "
-                   "modbus min unit id: %s", (const char*)(arg + idx));
+    if (StringParseUint8(&s7comm->function, 10, 0, (const char *)ptr) < 0) {
+        SCLogError(SC_ERR_INVALID_VALUE, "Invalid value for s7comm function: %s", (const char *)ptr);
         goto error;
     }
-    SCLogDebug("and min/equal unit id %d", modbus->unit_id->min);
 
-    if (ret > 2) {
-        res = pcre_copy_substring(str, ov, MAX_SUBSTRINGS, 2, arg, MAX_SUBSTRINGS);
-        if (res < 0) {
-            SCLogError(SC_ERR_PCRE_GET_SUBSTRING, "pcre_get_substring failed");
-            goto error;
-        }
+    s7comm->has_function = true;
 
-        if (*arg != '\0') {
-            if (StringParseUint16(&modbus->unit_id->max, 10, 0, (const char *) (arg + 2)) < 0) {
-                SCLogError(SC_ERR_INVALID_VALUE, "Invalid value for "
-                           "modbus max unit id: %s", (const char*)(arg + 2));
-                goto error;
-            }
-            modbus->unit_id->mode  = DETECT_MODBUS_RA;
-            SCLogDebug("and max unit id %d", modbus->unit_id->max);
-        }
-    }
+    SCLogNotice("will look for s7comm function %d", s7comm->function);
 
-    SCReturnPtr(modbus, "DetectModbusUnitId");
+    s7comm->type = 1;
+    s7comm->has_type = true;
+
+    SCReturnPtr(s7comm, "DetectS7comm");
 
 error:
-    if (modbus != NULL)
-        DetectModbusFree(de_ctx, modbus);
+    if (s7comm != NULL)
+        DetectS7commFree(de_ctx, s7comm);
 
-    SCReturnPtr(NULL, "DetectModbus");
+    SCReturnPtr(NULL, "DetectS7comm");
 }
 
-static DetectS7comm *DetectS7commFunctionParse(DetectEngineCtx *de_ctx, const char *s7commstr)
-{
-
-}
-
-static int DetectS7commMatch(DetectEngineThreadCtx *det_ctx, Packet *p,
+int DetectS7commMatch(DetectEngineThreadCtx *det_ctx, Packet *p,
         const Signature *s, const SigMatchCtx *ctx)
 {
-
+    SCLogNotice(SC_OK, "Packet payload: %s", (const char*)p->payload);
+    return 1;
 }
 
-static int DetectS7commSetup(DetectEngineCtx *de_ctx, Signature *s, const char *s7commstr)
+int DetectS7commSetup(DetectEngineCtx *de_ctx, Signature *s, const char *s7commstr)
 {
     SCEnter();
 
@@ -178,10 +149,10 @@ static int DetectS7commSetup(DetectEngineCtx *de_ctx, Signature *s, const char *
     if (DetectSignatureSetAppProto(s, ALPROTO_S7COMM) != 0)
         SCReturnInt(-1);
 
-    if ((s7comm = DetectS7commTypeParse(de_ctx, str)) == NULL) {
-        if ((s7comm = DetectS7commFunctionParse(de_ctx, str)) == NULL) {
-            SCLogError(SC_ERR_PCRE_MATCH, "invalid modbus option");
-            if (modbus != NULL)
+    if ((s7comm = DetectS7commTypeParse(de_ctx, s7commstr)) == NULL) {
+        if ((s7comm = DetectS7commFunctionParse(de_ctx, s7commstr)) == NULL) {
+            SCLogError(SC_ERR_PCRE_MATCH, "invalid s7comm option");
+            if (s7comm != NULL)
                 DetectS7commFree(de_ctx, s7comm);
 
             if (sm != NULL)
@@ -195,7 +166,7 @@ static int DetectS7commSetup(DetectEngineCtx *de_ctx, Signature *s, const char *
     sm = SigMatchAlloc();
     if (sm == NULL)
     {
-        if (modbus != NULL)
+        if (s7comm != NULL)
             DetectS7commFree(de_ctx, s7comm);
 
         if (sm != NULL)
@@ -207,19 +178,9 @@ static int DetectS7commSetup(DetectEngineCtx *de_ctx, Signature *s, const char *
     sm->type    = DETECT_AL_S7COMM_S7COMMBUF;
     sm->ctx     = (void *) s7comm;
 
-    SigMatchAppendSMToList(s, sm, );
+    SigMatchAppendSMToList(s, sm, DETECT_SM_LIST_MATCH); //g_s7comm_id);
 
     SCReturnInt(0);
-}
-
-static void DetectS7commFree(DetectEngineCtx *de_ctx, void *ptr)
-{
-    SCEnter();
-    DetectS7comm *s7comm = (DetectS7comm *) ptr;
-
-    if (s7comm) {
-        SCFree(s7comm);
-    }
 }
 
 void DetectS7commS7commbufRegister(void)
@@ -241,7 +202,7 @@ void DetectS7commS7commbufRegister(void)
     DetectSetupParseRegexes(PARSE_REGEX_TYPE, &type_parse_regex);
     DetectSetupParseRegexes(PARSE_REGEX_FUNCTION, &function_parse_regex);
 
-    g_s7comm_id = DetectBufferTypeGetByName("s7comm");
+    //g_s7comm_id = DetectBufferTypeGetByName("s7comm");
 
     SCLogNotice("S7comm application layer detect registered.");
 }

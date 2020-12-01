@@ -26,6 +26,16 @@
 
 #include "app-layer-s7comm.h"
 
+typedef struct DetectS7comm_ {
+    uint8_t             type;     
+    uint8_t             function;  
+    bool has_type;
+    bool has_function;                  
+    //DetectModbusValue   *unit_id;         
+    //DetectModbusValue   *address;          
+    //DetectModbusValue   *data;             
+} DetectS7comm;
+
 void DetectS7commS7commbufRegister(void);
 
 #endif /* __DETECT_S7COMM_S7COMMBUF_H__ */
