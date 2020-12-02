@@ -42,12 +42,10 @@
 
 #include "util-byte.h"
 
-// TODO: regex for type!!!
-
 /**
  * \brief Regex for parsing the S7comm type string
  */
-#define PARSE_REGEX_TYPE "^\\s*\"?\\s*type\\s*\\d\\s*\"?\\s*$"
+#define PARSE_REGEX_TYPE "^\\s*\"?\\s*type\\s*([0-9]+)\\s*\"?\\s*$"
 static DetectParseRegex type_parse_regex;
 
 /**
@@ -71,7 +69,6 @@ void DetectS7commFree(DetectEngineCtx *de_ctx, void *ptr)
         SCFree(s7comm);
     }
 }
-
 
 static DetectS7comm *DetectS7commTypeParse(DetectEngineCtx *de_ctx, const char *s7commstr)
 {
@@ -112,9 +109,6 @@ static DetectS7comm *DetectS7commFunctionParse(DetectEngineCtx *de_ctx, const ch
     s7comm->has_function = true;
 
     SCLogNotice("will look for s7comm function %d", s7comm->function);
-
-    s7comm->type = 1;
-    s7comm->has_type = true;
 
     SCReturnPtr(s7comm, "DetectS7comm");
 
