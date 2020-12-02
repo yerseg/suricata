@@ -30,7 +30,7 @@
  * s7comm pruposes.
  *
  * This s7comm implements a simple application layer for something
- * like the echo protocol running on port 7.
+ * like the echo protocol running on port 102.
  */
 
 #include "suricata-common.h"
@@ -45,11 +45,11 @@
 
 /* The default port to probe for echo traffic if not provided in the
  * configuration file. */
-#define S7COMM_DEFAULT_PORT "7"
+#define S7COMM_DEFAULT_PORT "102"
 
 /* The minimum size for a message. For some protocols this might
  * be the size of a header. */
-#define S7COMM_MIN_FRAME_LEN 1
+#define S7COMM_MIN_FRAME_LEN 7 // TPKT header (4) + COTP header (3)
 
 /* Enum of app-layer events for the protocol. Normally you might
  * have events for errors in parsing data, like unexpected data being
@@ -177,6 +177,8 @@ static int S7commStateGetEventInfo(const char *event_name, int *event_id,
 static int S7commStateGetEventInfoById(int event_id, const char **event_name,
                                          AppLayerEventType *event_type)
 {
+    SCLogNotice("S7commStateGetEventInfoById");
+
     *event_name = SCMapEnumValueToName(event_id, s7comm_decoder_event_table);
     if (*event_name == NULL) {
         SCLogError(SC_ERR_INVALID_ENUM_MAP, "event \"%d\" not present in "
@@ -192,6 +194,8 @@ static int S7commStateGetEventInfoById(int event_id, const char **event_name,
 
 static AppLayerDecoderEvents *S7commGetEvents(void *tx)
 {
+    SCLogNotice("S7commGetEvents");
+
     return ((S7commTransaction *)tx)->decoder_events;
 }
 
@@ -207,7 +211,6 @@ static AppProto S7commProbingParserTs(Flow *f, uint8_t direction,
 {
     /* Very simple test - if there is input, this is s7comm. */
     if (input_len >= S7COMM_MIN_FRAME_LEN) {
-        SCLogNotice("Detected as ALPROTO_S7COMM.");
         return ALPROTO_S7COMM;
     }
 
@@ -229,7 +232,6 @@ static AppProto S7commProbingParserTc(Flow *f, uint8_t direction,
 {
     /* Very simple test - if there is input, this is s7comm. */
     if (input_len >= S7COMM_MIN_FRAME_LEN) {
-        SCLogNotice("Detected as ALPROTO_S7COMM.");
         return ALPROTO_S7COMM;
     }
 
@@ -315,6 +317,8 @@ static AppLayerResult S7commParseResponse(Flow *f, void *statev, AppLayerParserS
     const uint8_t *input, uint32_t input_len, void *local_data,
     const uint8_t flags)
 {
+    SCLogNotice("S7commParseResponse");
+
     S7commState *state = statev;
     S7commTransaction *tx = NULL, *ttx;
 
@@ -382,6 +386,8 @@ end:
 
 static uint64_t S7commGetTxCnt(void *statev)
 {
+    SCLogNotice("S7commGetTxCnt");
+
     const S7commState *state = statev;
     SCLogNotice("Current tx count is %"PRIu64".", state->transaction_max);
     return state->transaction_max;
@@ -389,6 +395,8 @@ static uint64_t S7commGetTxCnt(void *statev)
 
 static void *S7commGetTx(void *statev, uint64_t tx_id)
 {
+    SCLogNotice("S7commGetTx");
+
     S7commState *state = statev;
     S7commTransaction *tx;
 
@@ -412,6 +420,8 @@ static void *S7commGetTx(void *statev, uint64_t tx_id)
  * In most cases 1 can be returned here.
  */
 static int S7commGetAlstateProgressCompletionStatus(uint8_t direction) {
+    SCLogNotice("S7commGetAlstateProgressCompletionStatus");
+
     return 1;
 }
 
@@ -430,6 +440,8 @@ static int S7commGetAlstateProgressCompletionStatus(uint8_t direction) {
  */
 static int S7commGetStateProgress(void *txv, uint8_t direction)
 {
+    SCLogNotice("S7commGetStateProgress");
+
     S7commTransaction *tx = txv;
 
     SCLogNotice("Transaction progress requested for tx ID %"PRIu64
@@ -452,6 +464,8 @@ static int S7commGetStateProgress(void *txv, uint8_t direction)
  */
 static AppLayerTxData *S7commGetTxData(void *vtx)
 {
+    SCLogNotice("S7commGetTxData");
+
     S7commTransaction *tx = vtx;
     return &tx->tx_data;
 }
@@ -461,6 +475,8 @@ static AppLayerTxData *S7commGetTxData(void *vtx)
  */
 static DetectEngineState *S7commGetTxDetectState(void *vtx)
 {
+    SCLogNotice("S7commGetTxDetectState");
+
     S7commTransaction *tx = vtx;
     return tx->de_state;
 }
@@ -471,6 +487,8 @@ static DetectEngineState *S7commGetTxDetectState(void *vtx)
 static int S7commSetTxDetectState(void *vtx,
     DetectEngineState *s)
 {
+    SCLogNotice("S7commSetTxDetectState");
+
     S7commTransaction *tx = vtx;
     tx->de_state = s;
     return 0;
@@ -565,11 +583,6 @@ void RegisterS7commParsers(void)
             S7commStateGetEventInfoById);
         AppLayerParserRegisterGetEventsFunc(IPPROTO_TCP, ALPROTO_S7COMM,
             S7commGetEvents);
-
-        /* Leave this is if you parser can handle gaps, otherwise
-         * remove. */
-        AppLayerParserRegisterOptionFlags(IPPROTO_TCP, ALPROTO_S7COMM,
-            APP_LAYER_PARSER_OPT_ACCEPT_GAPS);
     }
     else {
         SCLogNotice("S7comm protocol parsing disabled.");

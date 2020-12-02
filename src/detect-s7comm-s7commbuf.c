@@ -53,6 +53,16 @@ static DetectParseRegex type_parse_regex;
  */
 #define PARSE_REGEX_FUNCTION "^\\s*\"?\\s*function\\s*([0-9]+)\\s*\"?\\s*$"
 static DetectParseRegex function_parse_regex;
+
+#define S7COMM_PROTOCOL_MIN_LEN 17
+#define S7COMM_PROTOCOL_TYPE_HEADER_OFFSET 7
+#define S7COMM_ROSCTR_HEADER_OFFSET (S7COMM_PROTOCOL_TYPE_HEADER_OFFSET + 1)
+#define S7COMM_PDU_PTR_HEADER_OFFSET (S7COMM_PROTOCOL_TYPE_HEADER_OFFSET + 4)
+#define S7COMM_PARAMS_LEN_HEADER_OFFSET (S7COMM_PROTOCOL_TYPE_HEADER_OFFSET + 6)
+#define S7COMM_PDU_LEN_HEADER_OFFSET (S7COMM_PROTOCOL_TYPE_HEADER_OFFSET + 8)
+
+#define S7COMM_PROTOCOL_TYPE_CODE 0x32
+
         
 #ifdef UNITTESTS
 static void DetectS7commS7commbufRegisterTests(void);
@@ -72,6 +82,7 @@ void DetectS7commFree(DetectEngineCtx *de_ctx, void *ptr)
 
 static DetectS7comm *DetectS7commTypeParse(DetectEngineCtx *de_ctx, const char *s7commstr)
 {
+    // Not ready!
     return NULL;
 }
 
@@ -122,7 +133,55 @@ error:
 int DetectS7commMatch(DetectEngineThreadCtx *det_ctx, Packet *p,
         const Signature *s, const SigMatchCtx *ctx)
 {
-    SCLogNotice(SC_OK, "Packet payload: %s", (const char*)p->payload);
+    uint8_t* payload = p->payload;
+    uint8_t* payload_len = p->payload_len;
+    DetectS7comm* s7comm = (DetectS7comm*)ctx;
+
+    if (!(s7comm->has_function || s7comm->has_type)) {
+        return 0;
+    }
+
+    if (payload_len < S7COMM_PROTOCOL_MIN_LEN) {
+        SCLogNotice("payload length is too small");
+        return 0;
+    }
+
+    if (PKT_IS_PSEUDOPKT(p)) {
+        SCLogNotice("Pseudopkt detect");
+        return 0; 
+    }
+
+    if (!PKT_IS_TCP(p)) {
+        SCLogNotice("Transport protocol does not TCP");
+        return 0; 
+    }
+
+    if (*(payload + S7COMM_PROTOCOL_TYPE_HEADER_OFFSET) != S7COMM_PROTOCOL_TYPE_CODE) {
+        SCLogNotice("Protocol type not match with S7comm protocol: %d", *(payload + S7COMM_PROTOCOL_TYPE_HEADER_OFFSET));
+        return 0;
+    }
+
+    int ret = 0;
+
+    uint8_t rosctr = *(payload + S7COMM_ROSCTR_HEADER_OFFSET);
+    if (s7comm->has_type && s7comm->type != rosctr) {
+        SCLogNotice("Packet does not pass the filtering by message type (ROSCTR), actual rosctr = %d, rule = %d", rosctr, s7comm->type);
+        return 0;
+    }
+
+    uint32_t s7comm_header_len = S7COMM_PROTOCOL_TYPE_HEADER_OFFSET + 10;
+    if (rosctr == 0x03) { // Ack-data
+        s7comm_header_len += 2;
+    }
+
+    uint8_t function = *(payload + s7comm_header_len);
+    if (s7comm->has_function && s7comm->function != function) {
+        SCLogNotice("Packet does not pass the filtering by function, actual function = %d, rule = %d", function, s7comm->function);
+    
+        return 0;
+    } 
+
+    SCLogNotice("PACKET PASSED the filtering, DETECT");
     return 1;
 }
 
